@@ -9,6 +9,7 @@ __pycache__/
 
 # Local vector store / generated artifacts
 chroma_db/
+tfidf_index/
 *.sqlite3
 data/generated/
 # Generated synthetic data (deterministic — regenerate with src/gen_data.py & src/gen_sensors.py)
