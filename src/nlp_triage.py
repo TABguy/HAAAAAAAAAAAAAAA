@@ -43,6 +43,8 @@ class TriagedReport:
     criticality: str = ""           # e.g. low / medium / high
     duplicate_of: int | None = None
     entities: list[dict] = field(default_factory=list)
+    priority_score: float = 0.0     # higher = more urgent (see _priority_score)
+    report_id: str = ""             # carried from source row when available
 
 
 # --------------------------------------------------------------------------- #
@@ -69,28 +71,29 @@ ATA_KB: dict[str, dict] = {
         "components": ["aileron actuator", "spoiler", "elevator", "rudder", "flap", "slat",
                        "PCU", "FCU"],
         "symptoms": ["surface jam", "flap asymmetry", "spoiler fault", "actuator leak",
-                     "control restriction"],
+                     "control restriction", "f/ctl elac 1 fault", "elac 1 fault",
+                     "spoiler 3 fault", "rudder limiter warning"],
     },
     "29": {
         "system": "Hydraulic Power",
         "components": ["yellow electric pump", "green pump", "blue pump", "PTU", "reservoir",
                        "accumulator", "EDP"],
         "symptoms": ["reservoir low level", "low pressure", "overheat", "pump fault",
-                     "hydraulic leak"],
+                     "hydraulic leak", "ptu noisy"],
     },
     "32": {
         "system": "Landing Gear",
         "components": ["MLG shock absorber", "NLG", "WoW sensor", "tyre", "brake", "wheel",
                        "actuator"],
         "symptoms": ["WoW disagree", "gear unsafe indication", "brake temp high", "tyre wear",
-                     "gear retract fault"],
+                     "gear retract fault", "tyre worn beyond limits"],
     },
     "34": {
         "system": "Navigation",
         "components": ["ADIRU", "pitot probe", "GPS antenna", "radio altimeter", "ILS receiver",
                        "transponder"],
         "symptoms": ["nav data drift", "ADR fault", "radio alt fault", "position discrepancy",
-                     "ils fault"],
+                     "ils fault", "ra disagree", "gps primary lost", "ir 1 align fault"],
     },
     "49": {
         "system": "APU",
@@ -117,6 +120,42 @@ _HIGH_CRIT_KEYWORDS = (
 _MEDIUM_CRIT_KEYWORDS = (
     "major", "fault", "leak", "fail", "warning", "ecam", "repetitive",
 )
+
+# --------------------------------------------------------------------------- #
+# Priority scoring — turns the categorical fields into a single numeric urgency
+# the controller can sort a queue by. Higher = more urgent.
+# --------------------------------------------------------------------------- #
+# Base weight from criticality.
+_CRIT_WEIGHTS = {"high": 60.0, "medium": 30.0, "low": 10.0, "": 10.0}
+# Extra weight for intrinsically safety-critical systems (flight controls,
+# landing gear, hydraulics weigh highest).
+_SAFETY_ATA_WEIGHTS = {
+    "27": 25.0,  # flight controls
+    "32": 25.0,  # landing gear
+    "29": 20.0,  # hydraulic power
+    "21": 15.0,  # air conditioning & pressurization
+    "34": 10.0,  # navigation
+}
+# Words that mean the aircraft is (or risks being) grounded -> big escalator.
+_AOG_KEYWORDS = (
+    "aog", "grounded", "grounding", "unserviceable", "u/s", "rejected takeoff",
+    "no dispatch", "no-go", "diversion", "diverted",
+)
+
+
+def _priority_score(text_low: str, ata: str, criticality: str, severity: str) -> float:
+    """Numeric urgency in roughly [0, 100+]. Higher = triage sooner.
+
+    Combines: criticality weight + safety-critical ATA weight + AOG/grounding
+    keyword presence + an AOG severity flag. Deterministic, no LLM.
+    """
+    score = _CRIT_WEIGHTS.get(criticality, 10.0)
+    score += _SAFETY_ATA_WEIGHTS.get(ata, 0.0)
+    if any(kw in text_low for kw in _AOG_KEYWORDS):
+        score += 30.0
+    if (severity or "").upper() == "AOG":
+        score += 20.0
+    return round(score, 2)
 
 # --------------------------------------------------------------------------- #
 # Regex extractors
@@ -220,6 +259,7 @@ def _stage1(report: str) -> TriagedReport:
         action = m_act.group(0).strip()
 
     criticality = _criticality(text_low, ata, severity)
+    priority = _priority_score(text_low, ata, criticality, severity)
 
     return TriagedReport(
         raw=report,
@@ -229,6 +269,7 @@ def _stage1(report: str) -> TriagedReport:
         action=action,
         criticality=criticality,
         entities=entities,
+        priority_score=priority,
     )
 
 
@@ -285,15 +326,23 @@ def _stage2(report: str, base: TriagedReport) -> TriagedReport:
     if not data:
         return base
 
+    ata = str(data.get("ata_chapter") or base.ata_chapter)
+    criticality = str(data.get("criticality") or base.criticality)
+    text_low = (base.raw or "").lower()
+    sev_m = _RE_SEVERITY.search(base.raw or "")
+    severity = sev_m.group(1).upper() if sev_m else ""
+
     return TriagedReport(
         raw=base.raw,
-        ata_chapter=str(data.get("ata_chapter") or base.ata_chapter),
+        ata_chapter=ata,
         component=str(data.get("component") or base.component),
         symptom=str(data.get("symptom") or base.symptom),
         action=str(data.get("action") or base.action),
-        criticality=str(data.get("criticality") or base.criticality),
+        criticality=criticality,
         duplicate_of=base.duplicate_of,
         entities=base.entities,
+        priority_score=_priority_score(text_low, ata, criticality, severity),
+        report_id=base.report_id,
     )
 
 
@@ -352,6 +401,7 @@ def triage_file(path: str = "input/maintenance_logs.jsonl", limit: int | None = 
     """
     reports: list[TriagedReport] = []
     narratives: list[str] = []
+    report_ids: list[str] = []
     with open(path, encoding="utf-8") as fh:
         for i, line in enumerate(fh):
             if limit is not None and i >= limit:
@@ -361,9 +411,12 @@ def triage_file(path: str = "input/maintenance_logs.jsonl", limit: int | None = 
                 continue
             row = json.loads(line)
             narratives.append(row.get("narrative", ""))
+            report_ids.append(str(row.get("report_id", "")))
 
-    for narrative in narratives:
-        reports.append(triage(narrative))
+    for narrative, rid in zip(narratives, report_ids):
+        rep = triage(narrative)
+        rep.report_id = rid
+        reports.append(rep)
 
     # Duplicate detection: Jaccard over 3-shingles of normalized text.
     fingerprints = [_shingles(_normalize(n)) for n in narratives]
@@ -377,6 +430,98 @@ def triage_file(path: str = "input/maintenance_logs.jsonl", limit: int | None = 
                 break
 
     return reports
+
+
+# --------------------------------------------------------------------------- #
+# Dashboard backend — aggregate stats, tabular view, export
+# --------------------------------------------------------------------------- #
+def _system_for(ata: str) -> str:
+    """Human-readable system name for an ATA chapter (or '' if unknown)."""
+    kb = ATA_KB.get(str(ata))
+    return kb["system"] if kb else ""
+
+
+def _report_key(rep: "TriagedReport", idx: int):
+    """Stable identifier for a report: its report_id if set, else its index."""
+    return rep.report_id if rep.report_id else idx
+
+
+def summarize(reports: list[TriagedReport]) -> dict:
+    """Aggregate a triaged batch into the numbers a controller dashboard needs.
+
+    Returns:
+      n, by_ata, by_criticality, n_duplicates, n_unique, top_components,
+      priority_queue (top-10 report ids/indices by priority_score, dupes last).
+    """
+    from collections import Counter
+
+    by_ata: Counter = Counter()
+    by_crit: Counter = Counter()
+    comp_counts: Counter = Counter()
+    n_dupes = 0
+
+    for rep in reports:
+        by_ata[rep.ata_chapter or "?"] += 1
+        by_crit[rep.criticality or "?"] += 1
+        if rep.component:
+            comp_counts[rep.component] += 1
+        if rep.duplicate_of is not None:
+            n_dupes += 1
+
+    n = len(reports)
+    # Priority queue: rank unique reports first by score, then ties broken by
+    # order; duplicates are deprioritized (a controller works the canonical one).
+    ranked = sorted(
+        enumerate(reports),
+        key=lambda iv: (iv[1].duplicate_of is not None, -iv[1].priority_score, iv[0]),
+    )
+    priority_queue = [_report_key(rep, idx) for idx, rep in ranked[:10]]
+
+    return {
+        "n": n,
+        "by_ata": dict(by_ata.most_common()),
+        "by_criticality": dict(by_crit.most_common()),
+        "n_duplicates": n_dupes,
+        "n_unique": n - n_dupes,
+        "top_components": comp_counts.most_common(10),
+        "priority_queue": priority_queue,
+    }
+
+
+def to_dataframe(reports: list[TriagedReport]):
+    """One row per report, key fields only, sorted by priority_score desc."""
+    import pandas as pd
+
+    rows = []
+    for idx, rep in enumerate(reports):
+        rows.append({
+            "report_id": _report_key(rep, idx),
+            "ata_chapter": rep.ata_chapter,
+            "system": _system_for(rep.ata_chapter),
+            "component": rep.component,
+            "symptom": rep.symptom,
+            "action": rep.action,
+            "criticality": rep.criticality,
+            "priority_score": rep.priority_score,
+            "duplicate_of": rep.duplicate_of,
+            "raw": (rep.raw or "")[:120],
+        })
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df = df.sort_values("priority_score", ascending=False).reset_index(drop=True)
+    return df
+
+
+def export_csv(reports: list[TriagedReport], path: str = "input/triaged.csv") -> str:
+    """Write to_dataframe(reports) to CSV and return the path."""
+    import os
+
+    df = to_dataframe(reports)
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    df.to_csv(path, index=False)
+    return path
 
 
 # --------------------------------------------------------------------------- #
@@ -420,16 +565,28 @@ if __name__ == "__main__":
     print("=== NLP triage demo (first 10 records) ===\n")
     for idx, rep in enumerate(triage_file(PATH, limit=10)):
         dup = f"  [DUPLICATE of #{rep.duplicate_of}]" if rep.duplicate_of is not None else ""
-        print(f"#{idx}{dup}")
+        rid = f" ({rep.report_id})" if rep.report_id else ""
+        print(f"#{idx}{rid}{dup}")
         print(f"  ATA        : {rep.ata_chapter}")
         print(f"  component  : {rep.component}")
         print(f"  symptom    : {rep.symptom}")
         print(f"  action     : {rep.action}")
-        print(f"  criticality: {rep.criticality}")
+        print(f"  criticality: {rep.criticality}  (priority {rep.priority_score})")
         ents = ", ".join(f"{e['text']}({e['label']})" for e in rep.entities[:6])
         print(f"  entities   : {ents}")
         print(f"  narrative  : {rep.raw[:90]}")
         print()
+
+    # Full batch — feeds the dashboard backend below.
+    all_reports = triage_file(PATH)
+
+    print("=== summarize() — dashboard aggregates ===")
+    print(json.dumps(summarize(all_reports), indent=2, ensure_ascii=False))
+    print()
+
+    out_path = export_csv(all_reports)
+    print(f"=== export_csv() — wrote {len(all_reports)} rows to {out_path} ===")
+    print()
 
     print("=== evaluate() — Stage-1, zero LLM cost ===")
     print(json.dumps(evaluate(PATH), indent=2))

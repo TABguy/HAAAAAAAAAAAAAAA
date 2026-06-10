@@ -6,6 +6,10 @@ Goal: a **working demo** solving a real Airbus maintenance use case on AWS + age
 This README is the onboarding guide — follow it to get a running environment before 14:00.
 Deeper agent/context notes live in [AGENTS.md](AGENTS.md).
 
+> 📄 **Print/read the one-page runbook: [docs/HAKS2026_runbook.pdf](docs/HAKS2026_runbook.pdf)**
+> — setup, the 3 use cases, how to adapt to the real brief, demo script, business-value
+> template. Regenerate with `python src/make_runbook.py`.
+
 ---
 
 ## 0. Prerequisites (install these first)

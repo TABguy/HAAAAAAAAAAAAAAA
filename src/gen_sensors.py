@@ -45,6 +45,19 @@ SENSORS = {
     "IDG_vibration": {"unit": "ips", "baseline": 1.2, "noise": 0.08, "degrade": 0.9, "ata": "24"},
 }
 
+# Per-sensor "go fix it" limit, in the same engineering units as the series.
+# A degrading component is in trouble when its smoothed value crosses this limit;
+# used by anomaly.py to estimate remaining useful life (RUL). Values sit beyond
+# the healthy baseline in the direction the component degrades, with margin for
+# noise. Stable components (no degradation) have no failure limit -> None.
+FAILURE_THRESHOLDS: dict[str, float | None] = {
+    "APU_EGT": 560.0,            # EGT too hot (baseline 480, +55 drift) -> coking/wear
+    "ENG1_oil_pressure": 52.0,   # oil pressure too low (baseline 65, -8 drift) -> pump/seal wear
+    "MLG_brake_temp": None,      # stable, no wear trend
+    "HYD_green_pressure": None,  # stable, no wear trend
+    "IDG_vibration": 2.5,        # vibration too high (baseline 1.2, +0.9 drift) -> bearing wear
+}
+
 
 def _make_series(rng: np.random.Generator, profile: dict, n: int) -> tuple[np.ndarray, np.ndarray]:
     """Return (values, anomaly_labels) for one sensor."""
