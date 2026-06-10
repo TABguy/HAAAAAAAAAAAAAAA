@@ -1,0 +1,18 @@
+# Secrets — never commit
+.env
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Local vector store / generated artifacts
+chroma_db/
+*.sqlite3
+data/generated/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,31 @@
+# HAKS 2026 — heavy deps covering all 3 candidate use cases.
+# Trim to the actual brief after 13:00 (a leaner env starts faster on demo day).
+# Pins are bounded on purpose: unbounded ranges + the llama-index meta-package
+# blow up pip's resolver ("resolution-too-deep"). Keep the upper bounds.
+
+# --- AWS / Bedrock ---
+boto3>=1.34
+python-dotenv>=1.0
+
+# --- UI ---
+streamlit>=1.40,<2
+gradio>=4.44,<5            # fallback UI
+
+# --- Use case #1: RAG over technical docs ---
+# Use llama-index-core (NOT the `llama-index` meta-package) + only the needed integrations.
+llama-index-core>=0.12,<0.13
+llama-index-llms-bedrock-converse
+llama-index-embeddings-bedrock
+llama-index-vector-stores-chroma
+chromadb>=0.5,<0.6
+pypdf>=5.0                 # PDF ingestion
+
+# --- Use case #2: NLP triage of maintenance reports ---
+spacy>=3.7,<4
+# French model installed separately: python -m spacy download fr_core_news_lg
+
+# --- Use case #3: predictive maintenance / anomaly detection ---
+pandas>=2.2
+numpy>=1.26,<2            # <2 keeps spacy/chromadb/sklearn happy
+scikit-learn>=1.5
+plotly>=5.24
