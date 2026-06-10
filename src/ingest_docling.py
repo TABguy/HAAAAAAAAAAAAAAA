@@ -1,37 +1,49 @@
-"""Use case #1 (RAG) — build the Chroma vector index from input/.
+"""Use case #1 (RAG) — OPTIONAL Docling ingest path (the IBM angle).
 
-Reads every PDF in input/ (workorders + ATA procedures) via pypdf and every
-maintenance-log narrative from input/maintenance_logs.jsonl, attaches
-traceability metadata (source filename / report_id + ATA chapter where known),
-chunks with SentenceSplitter, embeds with Bedrock and persists to ./chroma_db.
+Same metadata / return contract as src/ingest.py, but PDFs are parsed with
+Docling for layout-aware extraction (tables, headings, reading order) instead
+of plain pypdf. Docling is a heavy optional dependency (pulls torch + CUDA),
+so the import is guarded and only happens inside build_index_docling().
 
-Run:  python src/ingest.py
+Install on a capable machine:  pip install -r requirements-docling.txt
+Run:  python src/ingest_docling.py
 """
 import json
-import re
 from pathlib import Path
 
-CHROMA_COLLECTION = "haks_rag"
+from src.ingest import CHROMA_COLLECTION, _ata_from_filename
 
 
-def _ata_from_filename(name: str) -> str:
-    """Parse 'ATA<chapter>' out of a filename like procedure_ATA24.pdf -> '24'."""
-    m = re.search(r"ATA[\s_-]?(\d{1,3})", name, re.IGNORECASE)
-    return m.group(1) if m else ""
+def _require_docling():
+    """Import Docling or fail loudly with install guidance."""
+    try:
+        from docling.document_converter import DocumentConverter  # noqa: F401
+    except Exception as e:  # noqa: BLE001
+        raise RuntimeError(
+            "Docling is not installed (this is the optional layout-aware ingest path). "
+            "Run `pip install -r requirements-docling.txt` on a machine with enough disk "
+            "(it pulls torch + CUDA). Original import error: "
+            f"{type(e).__name__}: {e}"
+        ) from e
+    from docling.document_converter import DocumentConverter
+
+    return DocumentConverter
 
 
-def _load_documents(input_dir: Path):
-    """Return a list of llama_index Document objects from PDFs + log narratives."""
+def _load_documents_docling(input_dir: Path):
+    """Return llama_index Documents: Docling-parsed PDFs + log narratives."""
     from llama_index.core import Document
-    from pypdf import PdfReader
+
+    DocumentConverter = _require_docling()
+    converter = DocumentConverter()
 
     docs = []
 
-    # 1) PDFs (workorders + procedures)
+    # 1) PDFs parsed via Docling (export to markdown to preserve structure)
     for pdf_path in sorted(input_dir.glob("*.pdf")):
         try:
-            reader = PdfReader(str(pdf_path))
-            text = "\n".join((page.extract_text() or "") for page in reader.pages)
+            result = converter.convert(str(pdf_path))
+            text = result.document.export_to_markdown()
         except Exception as e:  # noqa: BLE001
             print(f"  ! skipped {pdf_path.name}: {e}")
             continue
@@ -46,11 +58,12 @@ def _load_documents(input_dir: Path):
                     "ref": pdf_path.name,
                     "ata": _ata_from_filename(pdf_path.name),
                     "doc_type": "procedure" if "procedure" in pdf_path.name.lower() else "workorder",
+                    "parser": "docling",
                 },
             )
         )
 
-    # 2) Maintenance-log narratives (one document per record)
+    # 2) Maintenance-log narratives (identical to the pypdf path)
     logs_path = input_dir / "maintenance_logs.jsonl"
     if logs_path.exists():
         with logs_path.open(encoding="utf-8") as fh:
@@ -77,6 +90,7 @@ def _load_documents(input_dir: Path):
                             "severity": rec.get("severity", ""),
                             "system": rec.get("system", ""),
                             "component": rec.get("component", ""),
+                            "parser": "docling",
                         },
                     )
                 )
@@ -84,19 +98,21 @@ def _load_documents(input_dir: Path):
     return docs
 
 
-def build_index(input_dir: str = "input", persist_dir: str = "chroma_db") -> int:
-    """Load docs -> Bedrock embeddings -> persist to local Chroma.
+def build_index_docling(input_dir: str = "input", persist_dir: str = "chroma_db") -> int:
+    """Docling-based variant of ingest.build_index. Returns nodes indexed.
 
-    Returns the number of nodes (chunks) indexed.
-    Raises RuntimeError with a clear message if EMBED_MODEL_ID is not configured.
+    Raises RuntimeError if EMBED_MODEL_ID is unset or Docling is not installed.
     """
     from src.common import AWS_REGION, EMBED_MODEL_ID
 
     if not EMBED_MODEL_ID:
         raise RuntimeError(
             "EMBED_MODEL_ID is not set. Add EMBED_MODEL_ID=<bedrock-embeddings-model-id> "
-            "to your .env (region AWS_REGION) before running ingest."
+            "to your .env before running ingest."
         )
+
+    # Fail fast on missing Docling before any embedding work.
+    _require_docling()
 
     import chromadb
     from llama_index.core import StorageContext, VectorStoreIndex
@@ -110,10 +126,10 @@ def build_index(input_dir: str = "input", persist_dir: str = "chroma_db") -> int
     if not input_path.exists():
         raise RuntimeError(f"Input directory not found: {input_path}. Run src/gen_data.py first.")
 
-    docs = _load_documents(input_path)
+    docs = _load_documents_docling(input_path)
     if not docs:
         raise RuntimeError(f"No documents found in {input_path} (no PDFs or log narratives).")
-    print(f"Loaded {len(docs)} source documents from {input_path}")
+    print(f"Loaded {len(docs)} source documents (Docling) from {input_path}")
 
     embed_model = BedrockEmbedding(model_name=EMBED_MODEL_ID, region_name=AWS_REGION)
     splitter = SentenceSplitter(chunk_size=512, chunk_overlap=64)
@@ -131,16 +147,12 @@ def build_index(input_dir: str = "input", persist_dir: str = "chroma_db") -> int
     nodes = splitter.get_nodes_from_documents(docs)
     print(f"Split into {len(nodes)} nodes; embedding + indexing...")
 
-    VectorStoreIndex(
-        nodes,
-        storage_context=storage_context,
-        embed_model=embed_model,
-    )
+    VectorStoreIndex(nodes, storage_context=storage_context, embed_model=embed_model)
 
     print(f"Indexed {len(nodes)} nodes into {persist_path} (collection '{CHROMA_COLLECTION}')")
     return len(nodes)
 
 
 if __name__ == "__main__":
-    count = build_index()
-    print(f"Done. {count} nodes indexed.")
+    count = build_index_docling()
+    print(f"Done. {count} nodes indexed (Docling).")
