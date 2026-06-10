@@ -11,6 +11,12 @@ __pycache__/
 chroma_db/
 *.sqlite3
 data/generated/
+# Generated synthetic data (deterministic — regenerate with src/gen_data.py & src/gen_sensors.py)
+input/*.pdf
+input/*.html
+input/*.csv
+input/*.jsonl
+input/sensors/
 
 # OS / editor
 .DS_Store

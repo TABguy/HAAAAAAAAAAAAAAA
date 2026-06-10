@@ -1,0 +1,9 @@
+# HEAVY OPTIONAL EXTRA — do NOT install into the main hackathon venv.
+# Docling (the IBM angle) gives layout-aware PDF parsing (tables, headings,
+# reading order) but pulls in torch + CUDA wheels (multiple GB of disk).
+# Install ONLY on a machine with enough disk/RAM, in a SEPARATE venv if you
+# want to keep the demo venv's numpy pin intact:
+#     python -m venv venv-docling
+#     source venv-docling/bin/activate
+#     pip install -r requirements-docling.txt
+docling>=2.0

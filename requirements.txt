@@ -11,6 +11,9 @@ python-dotenv>=1.0
 streamlit>=1.40,<2
 gradio>=4.44,<5            # fallback UI
 
+# --- Synthetic data generation ---
+reportlab>=4.0            # renders the work-order / procedure PDFs (falls back to HTML if absent)
+
 # --- Use case #1: RAG over technical docs ---
 # Use llama-index-core (NOT the `llama-index` meta-package) + only the needed integrations.
 llama-index-core>=0.12,<0.13
