@@ -14,21 +14,6 @@ __pycache__/
 output/*
 !output/.gitkeep
 
-# --- Corrosion challenge: the real CSVs in input/ ARE tracked (no broad input ignore) ---
-# Legacy synthetic data from the pre-pivot scaffold (keep out of git, don't mix with real):
-input/maintenance_logs.*
-input/triaged.csv
-input/workorder_*.pdf
-input/procedure_*.pdf
-input/*.html
-input/sensors/
-
-# Old RAG scaffold artifacts
-chroma_db/
-tfidf_index/
-*.sqlite3
-data/generated/
-
 # OS / editor
 .DS_Store
 .vscode/
