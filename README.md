@@ -1,4 +1,4 @@
-# JacquesLePluBo — HAKS 2026 · Wing Corrosion (IBM × Airbus × AWS)
+# PROJET IBM x AIRBUS — HAKS 2026 · Wing Corrosion (IBM × Airbus × AWS)
 
 Predict `corrosion_risk` ∈ [0,1] per `(aircraft, reference month)`, scored by **Brier score**
 (lower is better; constant-0.5 baseline = 0.25). Full project rules, data spec, the two

@@ -1,9 +1,5 @@
 # Prompt d'onboarding pour Bob — HAKS 2026 / Wing Corrosion
 
-> Copie-colle tout ce bloc comme premier message à Bob dans VS Code.
-> Il décrit le contexte, les données analysées, le code déjà produit et les conventions.
-> Première instruction : **auditer le workspace existant avant de modifier quoi que ce soit.**
-
 ---
 
 [Rôle] Tu es mon binôme de dev sur un hackathon de data science (IBM × Airbus × AWS, HAKS 2026). On est le jour J, le temps est compté.

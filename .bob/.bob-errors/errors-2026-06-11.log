@@ -1,0 +1,60 @@
+
+================================================================================
+ERROR LOGGED: 2026-06-11T13:12:23.418Z
+================================================================================
+Error Name: Error
+Error Message: Missing authorization code
+
+Stack Trace:
+Error: Missing authorization code
+    at Server.<anonymous> (file:///home/quentin/.nvm/versions/node/v22.22.3/lib/node_modules/bobshell/bundle/bob.js:2088:209)
+    at Server.emit (node:events:519:28)
+    at parserOnIncoming (node:_http_server:1186:12)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+================================================================================
+
+
+================================================================================
+ERROR LOGGED: 2026-06-11T13:12:23.419Z
+================================================================================
+Error Name: Error
+Error Message: Missing authorization code
+
+Stack Trace:
+Error: Missing authorization code
+    at Server.<anonymous> (file:///home/quentin/.nvm/versions/node/v22.22.3/lib/node_modules/bobshell/bundle/bob.js:2088:209)
+    at Server.emit (node:events:519:28)
+    at parserOnIncoming (node:_http_server:1186:12)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+================================================================================
+
+
+================================================================================
+ERROR LOGGED: 2026-06-11T13:12:23.419Z
+================================================================================
+Error Name: Error
+Error Message: Missing authorization code
+
+Stack Trace:
+Error: Missing authorization code
+    at Server.<anonymous> (file:///home/quentin/.nvm/versions/node/v22.22.3/lib/node_modules/bobshell/bundle/bob.js:2088:209)
+    at Server.emit (node:events:519:28)
+    at parserOnIncoming (node:_http_server:1186:12)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+================================================================================
+
+
+================================================================================
+ERROR LOGGED: 2026-06-11T13:12:58.766Z
+================================================================================
+Error Name: Error
+Error Message: Missing authorization code
+
+Stack Trace:
+Error: Missing authorization code
+    at Server.<anonymous> (file:///home/quentin/.nvm/versions/node/v22.22.3/lib/node_modules/bobshell/bundle/bob.js:2088:209)
+    at Server.emit (node:events:519:28)
+    at parserOnIncoming (node:_http_server:1186:12)
+    at HTTPParser.parserOnHeadersComplete (node:_http_common:125:17)
+================================================================================
+
