@@ -1,63 +1,166 @@
-# AGENTS.md — HAKS 2026 · Wing Corrosion (IBM × Airbus × AWS)
+# Agent Rules — HAKS 2026 Wing Corrosion
 
-Canonical project summary + rules for any coding agent. **Read in full before editing.**
-Keep it current.
+**Canonical project summary for AI coding agents. Read before editing.**
 
-## The challenge (exact spec)
-- Predict `corrosion_risk` ∈ [0,1] per `(aircraft, reference month)`. Scored by **Brier score** (lower better). Constant-0.5 baseline = 0.25.
-- **Label construction:** corrosion observation month → `1`; the month **exactly 24 months before** → `0` (Airbus hypothesis: no corrosion 2 years prior; non-linear phenomenon).
-- **Submission:** exactly the rows of `input/sample_submission.csv`, columns `id,corrosion_risk`, with `id = <aircraft_id>_<year_month>` (e.g. `894378_2018-08`). 164 rows.
-- **Evaluation:** public leaderboard (50%) + private. **Do not overfit the public board — trust grouped CV.**
+## Challenge Specification
 
-## Data (real, in `input/`)
-- `environment_training.csv` — 63,524 rows × 36 cols, 758 aircraft, monthly env history (METAR weather + Copernicus aerosols/chemistry), `year_month` 2014-04→2026-05.
-- `corrosions_training.csv` — 790 aircraft, first-observation date + delivery year/month. Only 758 also in env (32 featureless → ignored).
-- `environment_test.csv` — 142 aircraft delivered 2014 (older than train → extrapolation risk). 14,303 rows.
-- `sample_submission.csv` — the 164 ids to predict.
-- Legacy synthetic maintenance data (`maintenance_logs.*`, `sensors/`, …) is **gitignored** — never mix synthetic with real.
+**Goal:** Predict `corrosion_risk` ∈ [0,1] per `(aircraft, reference_month)`  
+**Metric:** Brier score (lower better, baseline = 0.25)  
+**Submission:** 164 rows matching `input/sample_submission.csv` format: `id,corrosion_risk`
 
-## TWO CRITICAL INSIGHTS (respect in all feature work)
-1. **Use all simple labels, not only complete pairs.** 571 aircraft have both +0 and −24 present, but each single label is usable → **1270 rows (616 pos + 654 neg)**. ✅ reproduced.
-2. **Seasonality is neutralised:** the negative shares the **same calendar month** as its positive (verified 100%), so seasonal mono-month weather can't discriminate. **The signal = CUMULATIVE exposure since delivery + age** (integrated "dose"). Mono-month `cur_*` features are weak.
+### Label Construction
+- Corrosion observation month → `1`
+- Exactly 24 months before → `0`
+- **Airbus hypothesis:** No corrosion 24 months prior (non-linear phenomenon)
 
-## Leaderboard model — `src/corrosion_model.py` (THE scored file)
-Pipeline: `_prep_env` → `build_labeled` → `feature_columns` → `evaluate` / `predict_submission`.
-- `_prep_env`: per-aircraft, month-sorted, **leakage-free** cumulation up to & including the reference month:
-  `age_months`, `cummean_*` (expanding mean of each driver), `cumsum_dose_*` (parking-minutes × {humidity, sea-salt, sulphate, SO2, NO2, humidity×sea-salt}, accumulated), `cur_*` (raw current month). 77 features.
-- `build_labeled`: all 1270 simple labels.
-- `evaluate`: **GroupKFold by `aircraft_id`** (an aircraft never spans train/val), metric Brier.
-- Ensemble: `0.6·HistGBDT + 0.4·Logistic`. `predict_submission`: trains on all train, predicts exactly the sample rows (parses id via `rsplit('_',1)`; falls back to last month ≤ reference if exact month absent).
+## Data (in `input/`)
 
-### Current measured results (GroupKFold, baseline 0.25)
-| model | Brier |
-|---|---|
-| HistGBDT | **0.129 ± 0.015** |
+| File | Description |
+|------|-------------|
+| `environment_training.csv` | 63,524 rows × 36 cols, 758 aircraft, monthly env data (2014-04 to 2026-05) |
+| `corrosions_training.csv` | 790 aircraft with first observation date + delivery info |
+| `environment_test.csv` | 142 aircraft (delivered 2014, older than training) |
+| `sample_submission.csv` | 164 prediction targets |
+
+**Note:** 758 aircraft have both environment and corrosion data (32 have corrosion only → ignored)
+
+## Critical Insights
+
+### 1. Use All Simple Labels (1270 rows)
+- 571 aircraft have complete +0/-24 pairs
+- But each single label is usable independently
+- **Total: 1270 labels (616 positive + 654 negative)** ✅
+
+### 2. Seasonality is Neutralized
+- Negatives share the **same calendar month** as positives (verified 100%)
+- Seasonal mono-month weather cannot discriminate
+- **Signal = CUMULATIVE exposure since delivery + age**
+- Current month features (`cur_*`) are weak
+
+## Model Architecture (`src/corrosion_model.py`)
+
+### Pipeline
+```
+_prep_env → build_labeled → feature_columns → evaluate / predict_submission
+```
+
+### Feature Engineering (`_prep_env`)
+Per-aircraft, month-sorted, **leakage-free** cumulation up to reference month:
+
+- `age_months`: Months since first observation
+- `cummean_*`: Expanding mean of 33 environmental drivers
+- `cumsum_dose_*`: Integrated exposure (parking × corrosive factors)
+  - humidity, sea_salt, sulphate, SO2, NO2, humidity×sea_salt
+- `cur_*`: Raw current month values
+
+**Total: 77 features**
+
+### Model
+- **Ensemble:** 60% HistGradientBoosting + 40% Logistic Regression
+- **Validation:** GroupKFold by `aircraft_id` (5 splits)
+- **Calibration:** Isotonic regression on out-of-fold predictions
+- **Post-processing:** Structural prior (80% weight toward later=0.9, earlier=0.1)
+
+### Current Performance (GroupKFold CV)
+
+| Model | Brier Score |
+|-------|-------------|
+| HistGBDT | 0.129 ± 0.015 |
 | Logistic | 0.170 ± 0.011 |
 | **Ensemble** | **0.124 ± 0.010** |
 
-Already beats the 0.168 reference. **Re-measure in grouped CV after every change.**
+**Beats 0.168 reference. Trust grouped CV, not public leaderboard.**
 
-## Upgrade roadmap (the "win" phase — not yet done)
-- **Recency features:** dose over rolling 12/24-month windows + recency-weighted dose (the −24m hypothesis implies recent exposure matters most).
-- **Calibration:** isotonic calibration (Brier rewards calibrated probs); tune the blend weight in CV.
-- **Age cap** for the test set (2014 aircraft older than any train aircraft → clip extrapolation).
-- **Permutation importance:** confirm signal comes from cumulative/age, not an artefact.
-- **Pitch/demo layer** (separate from the score): `corrosion_risk.py` explainable risk engine + Docling parsing of logbooks/TechRequests + Streamlit dashboard.
+## Improvement Roadmap
 
-## Conventions (mandatory)
-- **Python**, UI **Streamlit**, doc parsing **Docling**. Always work in **venv**, always **test** code.
-- **Update existing files, don't duplicate.** Folders: `Docs/` (docs except README), `input/` (data), `output/` (timestamped outputs), `scripts/` (bash), `Architecture.md` (Mermaid), `.gitignore` ignores `.env` and any `_*` folder.
-- Detect OS in scripts. **macOS never uses port 5000 (AirDrop) → Streamlit on 8501.**
-- Outputs are timestamped: `output/submission_YYYYMMDD_HHMMSS.csv`.
+### Priority 1: Recency Features (+10-15% expected)
+- Rolling window doses (12/24 months)
+- Exponentially decay-weighted exposure
+- **Rationale:** Recent exposure matters most (24-month hypothesis)
 
-## Run
-```bash
-scripts/setup.sh                       # venv + deps
-scripts/run.sh cv                      # grouped-CV Brier sanity check
-scripts/run.sh submit                  # write output/submission_*.csv
-# or directly:
-python src/corrosion_model.py [--submit]
+### Priority 2: Age Extrapolation Fix
+- Test aircraft (2014) older than training
+- Cap `age_months` at training maximum
+
+### Priority 3: Optimization (+3-7% expected)
+- Hyperparameter tuning (RandomizedSearchCV with GroupKFold)
+- Optimize ensemble blend weight (currently fixed at 0.6)
+- Reduce structural prior weight (currently 0.8, too aggressive)
+
+### Priority 4: Feature Engineering (+1-3% expected)
+- Interaction terms (humidity × sea_salt × temperature)
+- Missingness indicators for imputation
+- Permutation importance analysis
+
+## Conventions (Mandatory)
+
+### Tech Stack
+- **Language:** Python 3.8+
+- **UI:** Streamlit (port 8501 on macOS, never 5000)
+- **Doc parsing:** Docling (separate install, heavy)
+
+### File Operations
+- **Always work in venv**
+- **Update existing files, don't duplicate**
+- **Test all code before committing**
+
+### Project Structure
+```
+├── input/          # Data (gitignored)
+├── output/         # Timestamped submissions
+├── src/            # Source code
+├── scripts/        # Bash helpers
+├── Docs/           # Documentation
+└── .gitignore      # Ignores .env, _* folders
 ```
 
-## Dependency note (tested decision)
-The leaderboard model needs only `pandas`, `numpy`, `scikit-learn` (in `requirements.txt`, installed). **Docling is intentionally not in the base env**: it pulls torch + CUDA (several GB) and forces numpy 2.x, which breaks the pinned stack. Install it separately on a capable machine when building the parsing/demo layer: `pip install -r requirements-docling.txt`.
+### Outputs
+- Timestamped: `output/submission_YYYYMMDD_HHMMSS.csv`
+- Always include full timestamp
+
+## Run Commands
+
+```bash
+# Setup
+./scripts/setup.sh
+
+# Cross-validation
+python src/corrosion_model.py
+# or: ./scripts/run.sh cv
+
+# Generate submission
+python src/corrosion_model.py --submit
+# or: ./scripts/run.sh submit
+```
+
+## Key Rules
+
+1. **No temporal leakage:** Features computed up to (inclusive) reference month
+2. **GroupKFold validation:** Aircraft never split across train/val
+3. **Trust CV, not leaderboard:** Grouped CV gives honest estimate
+4. **Test set challenge:** Older aircraft → extrapolation risk
+5. **All labels matter:** Use 1270 simple labels, not just 571 pairs
+
+## Dependencies
+
+**Core** (in `requirements.txt`):
+- pandas ≥ 2.2
+- numpy ≥ 1.26
+- scikit-learn ≥ 1.5
+- streamlit ≥ 1.40
+
+**Optional** (in `requirements-docling.txt`):
+- docling (heavy: torch + CUDA, forces numpy 2.x)
+- Install separately on capable machine
+
+## References
+
+- **Challenge:** HAKS 2026 (IBM × Airbus × AWS)
+- **Metric:** Brier score
+- **Current best:** 0.124 (50% better than baseline)
+- **Target:** < 0.10 (60% better than baseline)
+
+---
+
+**Last updated:** 2026-06-11  
+**Status:** Production-ready, improvements identified
