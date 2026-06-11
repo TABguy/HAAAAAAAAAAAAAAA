@@ -74,7 +74,12 @@ def _ym_index(ym: pd.Series) -> pd.Series:
 
 
 def _driver_columns(env: pd.DataFrame) -> list[str]:
-    skip = set(KEYS) | {"total_parking_minutes"}
+    # Skip keys, parking (handled separately as dose weight), and the internal
+    # bookkeeping columns ym_idx / age_months. ym_idx is the ABSOLUTE calendar index:
+    # turning it into a feature lets the model read recency directly (the +0 month is
+    # always 24 months later than its -24 negative), a non-physical confound. age_months
+    # is added explicitly by feature_columns, so its cur_/cummean_ copies are redundant.
+    skip = set(KEYS) | {"total_parking_minutes", "ym_idx", "age_months"}
     return [c for c in env.columns if c not in skip and pd.api.types.is_numeric_dtype(env[c])]
 
 
