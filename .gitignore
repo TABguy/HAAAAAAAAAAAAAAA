@@ -1,23 +1,33 @@
 # Secrets — never commit
 .env
 
+# Any folder starting with _ (scratch / archives) — org convention
+_*/
+
 # Python
 venv/
 __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
 
-# Local vector store / generated artifacts
+# Timestamped run outputs (submissions, parsed docs) — regenerated
+output/*
+!output/.gitkeep
+
+# --- Corrosion challenge: the real CSVs in input/ ARE tracked (no broad input ignore) ---
+# Legacy synthetic data from the pre-pivot scaffold (keep out of git, don't mix with real):
+input/maintenance_logs.*
+input/triaged.csv
+input/workorder_*.pdf
+input/procedure_*.pdf
+input/*.html
+input/sensors/
+
+# Old RAG scaffold artifacts
 chroma_db/
 tfidf_index/
 *.sqlite3
 data/generated/
-# Generated synthetic data (deterministic — regenerate with src/gen_data.py & src/gen_sensors.py)
-input/*.pdf
-input/*.html
-input/*.csv
-input/*.jsonl
-input/sensors/
 
 # OS / editor
 .DS_Store
